@@ -56,8 +56,34 @@ describe('add command', () => {
     expect(savedVault.entries['API_KEY']).toEqual(mockEncrypted);
   });
 
+  it('preserves existing entries when adding a new key', async () => {
+    const existingVault = {
+      ...mockVault,
+      entries: { EXISTING_KEY: { iv: 'e_iv', encryptedKey: 'e_ek', encryptedValue: 'e_ev' } },
+    };
+    (vaultModule.loadVault as jest.Mock).mockResolvedValue(existingVault);
+
+    await program.parseAsync(['node', 'envault', 'add', 'NEW_KEY', '--value', 'newvalue']);
+
+    const savedVault = (vaultModule.saveVault as jest.Mock).mock.calls[0][0];
+    expect(savedVault.entries['EXISTING_KEY']).toEqual(existingVault.entries['EXISTING_KEY']);
+    expect(savedVault.entries['NEW_KEY']).toEqual(mockEncrypted);
+  });
+
   it('exits with error when loadVault fails', async () => {
     (vaultModule.loadVault as jest.Mock).mockRejectedValue(new Error('Vault not found'));
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+
+    await expect(
+      program.parseAsync(['node', 'envault', 'add', 'KEY', '--value', 'val'])
+    ).rejects.toThrow('exit');
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    exitSpy.mockRestore();
+  });
+
+  it('exits with error when loadKey fails', async () => {
+    (cryptoModule.loadKey as jest.Mock).mockRejectedValue(new Error('Key not found'));
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
 
     await expect(
