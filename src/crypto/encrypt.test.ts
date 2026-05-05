@@ -44,6 +44,11 @@ describe('encrypt / decrypt', () => {
     expect(() => decryptWithPrivateKey(wrongPrivateKey, ciphertext)).toThrow();
   });
 
+  it('throws when decrypting malformed/corrupted ciphertext', () => {
+    const corruptedCiphertext = Buffer.from('not-valid-ciphertext').toString('base64');
+    expect(() => decryptWithPrivateKey(privateKey, corruptedCiphertext)).toThrow();
+  });
+
   it('encrypts all values in an env record', () => {
     const env = { DB_URL: 'postgres://localhost/db', API_KEY: 'abc123' };
     const encrypted = encryptEnvRecord(publicKey, env);
