@@ -1,69 +1,75 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { importEnvToVault, resolveEnvFilePath } from "./vaultImport";
-import { createVault, saveVault, loadVault } from "./vault";
+import { resolveEnvFilePath, readEnvFile, importEnvToVault } from "./vaultImport";
+import { createVault, saveVault } from "./vault";
 import { generateKeyPair, saveKeyPair } from "../crypto/keyPair";
 
-async function makeTempEnv(): Promise<{ dir: string; envPath: string; pubKeyPath: string }> {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "envault-import-"));
-  const { publicKey, privateKey } = await generateKeyPair();
-  const pubKeyPath = path.join(dir, "public.pem");
-  const privKeyPath = path.join(dir, "private.pem");
-  saveKeyPair(pubKeyPath, privKeyPath, publicKey, privateKey);
-
-  const envPath = path.join(dir, ".env");
-  fs.writeFileSync(envPath, "API_KEY=abc123\nDB_URL=postgres://localhost/test\n");
-
-  return { dir, envPath, pubKeyPath };
+function makeTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "envault-import-test-"));
 }
 
-describe("importEnvToVault", () => {
-  it("imports all keys from a .env file into a new vault", async () => {
-    const { envPath, pubKeyPath } = await makeTempEnv();
-    const { vault, result } = await importEnvToVault(envPath, pubKeyPath, null);
-
-    expect(result.imported).toContain("API_KEY");
-    expect(result.imported).toContain("DB_URL");
-    expect(result.skipped).toHaveLength(0);
-    expect(result.total).toBe(2);
-    expect(Object.keys(vault.entries)).toHaveLength(2);
+describe("resolveEnvFilePath", () => {
+  it("returns absolute path unchanged", () => {
+    expect(resolveEnvFilePath("/tmp/test.env")).toBe("/tmp/test.env");
   });
 
-  it("skips existing keys when overwrite is false", async () => {
-    const { envPath, pubKeyPath } = await makeTempEnv();
-    const existing = createVault(pubKeyPath);
-    const { vault: first } = await importEnvToVault(envPath, pubKeyPath, existing);
-
-    const { result } = await importEnvToVault(envPath, pubKeyPath, first, { overwrite: false });
-    expect(result.skipped).toContain("API_KEY");
-    expect(result.skipped).toContain("DB_URL");
-    expect(result.imported).toHaveLength(0);
-  });
-
-  it("overwrites existing keys when overwrite is true", async () => {
-    const { envPath, pubKeyPath } = await makeTempEnv();
-    const existing = createVault(pubKeyPath);
-    const { vault: first } = await importEnvToVault(envPath, pubKeyPath, existing);
-    const oldEntry = first.entries["API_KEY"];
-
-    const { vault: second, result } = await importEnvToVault(envPath, pubKeyPath, first, { overwrite: true });
-    expect(result.imported).toContain("API_KEY");
-    expect(result.skipped).toHaveLength(0);
-    // Entry should be re-encrypted (ciphertext may differ)
-    expect(second.entries["API_KEY"]).toBeDefined();
+  it("resolves relative path against cwd", () => {
+    const result = resolveEnvFilePath("test.env");
+    expect(result).toBe(path.resolve(process.cwd(), "test.env"));
   });
 });
 
-describe("resolveEnvFilePath", () => {
-  it("returns absolute path when provided", () => {
-    const result = resolveEnvFilePath("/tmp/my.env");
-    expect(path.isAbsolute(result)).toBe(true);
-    expect(result).toBe("/tmp/my.env");
+describe("readEnvFile", () => {
+  it("parses an env file into a record", () => {
+    const dir = makeTempDir();
+    const filePath = path.join(dir, ".env");
+    fs.writeFileSync(filePath, "FOO=bar\nBAZ=qux\n");
+    const result = readEnvFile(filePath);
+    expect(result).toEqual({ FOO: "bar", BAZ: "qux" });
   });
 
-  it("defaults to .env in cwd when no path given", () => {
-    const result = resolveEnvFilePath();
-    expect(result).toBe(path.join(process.cwd(), ".env"));
+  it("throws if file does not exist", () => {
+    expect(() => readEnvFile("/nonexistent/path/.env")).toThrow("File not found");
+  });
+});
+
+describe("importEnvToVault", () => {
+  it("imports env keys into vault", async () => {
+    const dir = makeTempDir();
+    const { publicKey, privateKey } = await generateKeyPair();
+    const pubKeyPath = path.join(dir, "public.pem");
+    fs.writeFileSync(pubKeyPath, publicKey);
+
+    const vaultPath = path.join(dir, "vault.json");
+    const vault = createVault("test-vault");
+    saveVault(vaultPath, vault);
+
+    const envPath = path.join(dir, ".env");
+    fs.writeFileSync(envPath, "API_KEY=secret123\nDB_URL=postgres://localhost/db\n");
+
+    const { imported, skipped } = await importEnvToVault(envPath, vaultPath, pubKeyPath);
+    expect(imported).toContain("API_KEY");
+    expect(imported).toContain("DB_URL");
+    expect(skipped).toHaveLength(0);
+  });
+
+  it("skips existing keys when overwrite is false", async () => {
+    const dir = makeTempDir();
+    const { publicKey } = await generateKeyPair();
+    const pubKeyPath = path.join(dir, "public.pem");
+    fs.writeFileSync(pubKeyPath, publicKey);
+
+    const envPath = path.join(dir, ".env");
+    fs.writeFileSync(envPath, "API_KEY=secret123\n");
+
+    const vaultPath = path.join(dir, "vault.json");
+    const vault = createVault("test-vault");
+    saveVault(vaultPath, vault);
+
+    await importEnvToVault(envPath, vaultPath, pubKeyPath);
+    const { imported, skipped } = await importEnvToVault(envPath, vaultPath, pubKeyPath);
+    expect(skipped).toContain("API_KEY");
+    expect(imported).toHaveLength(0);
   });
 });

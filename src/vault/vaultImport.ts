@@ -1,58 +1,51 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Vault, createVault } from "./vault";
 import { parseEnv } from "../env/parser";
 import { encryptEnvRecord } from "../crypto/encrypt";
+import { loadVault, saveVault } from "./vault";
+import type { Vault } from "./vault";
 
-export interface ImportResult {
-  imported: string[];
-  skipped: string[];
-  total: number;
+export function resolveEnvFilePath(filePath: string): string {
+  return path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
 }
 
-/**
- * Import key/value pairs from a .env file into a vault.
- * Existing keys are skipped unless `overwrite` is true.
- */
+export function readEnvFile(filePath: string): Record<string, string> {
+  const resolved = resolveEnvFilePath(filePath);
+  if (!fs.existsSync(resolved)) {
+    throw new Error(`File not found: ${resolved}`);
+  }
+  const content = fs.readFileSync(resolved, "utf-8");
+  return parseEnv(content);
+}
+
 export async function importEnvToVault(
   envFilePath: string,
+  vaultPath: string,
   publicKeyPath: string,
-  existingVault: Vault | null,
   options: { overwrite?: boolean } = {}
-): Promise<{ vault: Vault; result: ImportResult }> {
-  const raw = fs.readFileSync(envFilePath, "utf-8");
-  const parsed = parseEnv(raw);
+): Promise<{ imported: string[]; skipped: string[] }> {
+  const { overwrite = false } = options;
 
-  const base: Vault = existingVault ?? createVault(publicKeyPath);
+  const envRecord = readEnvFile(envFilePath);
+  const vault = loadVault(vaultPath);
+  const publicKey = fs.readFileSync(publicKeyPath, "utf-8");
+
   const imported: string[] = [];
   const skipped: string[] = [];
 
-  for (const [key, value] of Object.entries(parsed)) {
-    const alreadyExists = key in base.entries;
-    if (alreadyExists && !options.overwrite) {
+  for (const [key, value] of Object.entries(envRecord)) {
+    if (vault.secrets[key] && !overwrite) {
       skipped.push(key);
       continue;
     }
-    const encrypted = await encryptEnvRecord(key, value, publicKeyPath);
-    base.entries[key] = encrypted;
+    vault.secrets[key] = encryptEnvRecord(key, value, publicKey);
     imported.push(key);
   }
 
-  return {
-    vault: base,
-    result: {
-      imported,
-      skipped,
-      total: Object.keys(parsed).length,
-    },
-  };
-}
+  if (imported.length > 0) {
+    vault.updatedAt = new Date().toISOString();
+    saveVault(vaultPath, vault);
+  }
 
-/**
- * Resolve the absolute path to an env file, defaulting to `.env` in cwd.
- */
-export function resolveEnvFilePath(filePath?: string): string {
-  return filePath
-    ? path.resolve(filePath)
-    : path.join(process.cwd(), ".env");
+  return { imported, skipped };
 }
