@@ -37,13 +37,18 @@ export function registerListCommand(program: Command): void {
 
         const privateKey = loadKey(keyPath);
         console.log(`\nVault entries (${keys.length}):\n`);
+        let decryptionFailures = 0;
         for (const key of keys.sort()) {
           try {
             const value = decryptWithPrivateKey(vault.entries[key], privateKey);
             console.log(`  ${key}=${value}`);
           } catch {
             console.log(`  ${key}=<decryption failed>`);
+            decryptionFailures++;
           }
+        }
+        if (decryptionFailures > 0) {
+          console.warn(`\nWarning: ${decryptionFailures} entry/entries could not be decrypted. The key file may not match this vault.`);
         }
       } else {
         console.log(`\nVault entries (${keys.length}):\n`);
