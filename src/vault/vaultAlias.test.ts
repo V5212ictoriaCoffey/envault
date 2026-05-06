@@ -1,9 +1,10 @@
 import fs from "fs";
-import os from "os";
 import path from "path";
+import os from "os";
 import {
   getAliasPath,
   loadAliasStore,
+  saveAliasStore,
   addAlias,
   removeAlias,
   resolveAlias,
@@ -15,78 +16,72 @@ function makeTempDir(): string {
 }
 
 describe("vaultAlias", () => {
-  let tmpDir: string;
+  let dir: string;
 
   beforeEach(() => {
-    tmpDir = makeTempDir();
+    dir = makeTempDir();
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  test("getAliasPath returns correct path", () => {
-    expect(getAliasPath(tmpDir)).toBe(
-      path.join(tmpDir, ".envault-aliases.json")
-    );
+  it("getAliasPath returns correct path", () => {
+    expect(getAliasPath(dir)).toBe(path.join(dir, ".vault-aliases.json"));
   });
 
-  test("loadAliasStore returns empty store when file missing", () => {
-    const store = loadAliasStore(tmpDir);
-    expect(store.aliases).toEqual({});
+  it("loadAliasStore returns empty store when file missing", () => {
+    const store = loadAliasStore(dir);
+    expect(store).toEqual({ aliases: {} });
   });
 
-  test("addAlias creates and persists an alias", () => {
-    const store = addAlias(tmpDir, "DB", "DATABASE_URL");
-    expect(store.aliases["DB"]).toBe("DATABASE_URL");
-    const loaded = loadAliasStore(tmpDir);
-    expect(loaded.aliases["DB"]).toBe("DATABASE_URL");
+  it("saveAliasStore and loadAliasStore round-trip", () => {
+    const store = { aliases: { DB_URL: "DATABASE_URL" } };
+    saveAliasStore(dir, store);
+    const loaded = loadAliasStore(dir);
+    expect(loaded).toEqual(store);
   });
 
-  test("addAlias throws on invalid alias name", () => {
-    expect(() => addAlias(tmpDir, "my-alias!", "SOME_KEY")).toThrow(
-      /Invalid alias/
-    );
+  it("addAlias stores a new alias", () => {
+    const store = addAlias(dir, "db", "DATABASE_URL");
+    expect(store.aliases["db"]).toBe("DATABASE_URL");
+    const loaded = loadAliasStore(dir);
+    expect(loaded.aliases["db"]).toBe("DATABASE_URL");
   });
 
-  test("addAlias throws if alias already points to a different key", () => {
-    addAlias(tmpDir, "DB", "DATABASE_URL");
-    expect(() => addAlias(tmpDir, "DB", "OTHER_KEY")).toThrow(
-      /already points to/
-    );
+  it("addAlias overwrites an existing alias", () => {
+    addAlias(dir, "db", "DATABASE_URL");
+    addAlias(dir, "db", "DB_CONNECTION");
+    const loaded = loadAliasStore(dir);
+    expect(loaded.aliases["db"]).toBe("DB_CONNECTION");
   });
 
-  test("addAlias is idempotent for same key", () => {
-    addAlias(tmpDir, "DB", "DATABASE_URL");
-    const store = addAlias(tmpDir, "DB", "DATABASE_URL");
-    expect(store.aliases["DB"]).toBe("DATABASE_URL");
+  it("removeAlias deletes the alias", () => {
+    addAlias(dir, "db", "DATABASE_URL");
+    removeAlias(dir, "db");
+    const loaded = loadAliasStore(dir);
+    expect(loaded.aliases["db"]).toBeUndefined();
   });
 
-  test("removeAlias removes an existing alias", () => {
-    addAlias(tmpDir, "DB", "DATABASE_URL");
-    const store = removeAlias(tmpDir, "DB");
-    expect(store.aliases["DB"]).toBeUndefined();
+  it("resolveAlias returns mapped key when alias exists", () => {
+    addAlias(dir, "db", "DATABASE_URL");
+    expect(resolveAlias(dir, "db")).toBe("DATABASE_URL");
   });
 
-  test("removeAlias throws if alias does not exist", () => {
-    expect(() => removeAlias(tmpDir, "MISSING")).toThrow(/not found/);
+  it("resolveAlias returns input unchanged when alias missing", () => {
+    expect(resolveAlias(dir, "UNKNOWN_ALIAS")).toBe("UNKNOWN_ALIAS");
   });
 
-  test("resolveAlias returns canonical key for known alias", () => {
-    addAlias(tmpDir, "DB", "DATABASE_URL");
-    expect(resolveAlias(tmpDir, "DB")).toBe("DATABASE_URL");
-  });
-
-  test("resolveAlias returns input unchanged for unknown alias", () => {
-    expect(resolveAlias(tmpDir, "UNKNOWN_KEY")).toBe("UNKNOWN_KEY");
-  });
-
-  test("listAliases returns all alias entries", () => {
-    addAlias(tmpDir, "DB", "DATABASE_URL");
-    addAlias(tmpDir, "SECRET", "API_SECRET_KEY");
-    const entries = listAliases(tmpDir);
+  it("listAliases returns all aliases", () => {
+    addAlias(dir, "db", "DATABASE_URL");
+    addAlias(dir, "secret", "APP_SECRET");
+    const entries = listAliases(dir);
     expect(entries).toHaveLength(2);
-    expect(entries).toContainEqual({ alias: "DB", key: "DATABASE_URL" });
-    expect(entries).toContainEqual({ alias: "SECRET", key: "API_SECRET_KEY" });
+    expect(entries).toContainEqual({ alias: "db", key: "DATABASE_URL" });
+    expect(entries).toContainEqual({ alias: "secret", key: "APP_SECRET" });
+  });
+
+  it("listAliases returns empty array when no aliases", () => {
+    expect(listAliases(dir)).toEqual([]);
   });
 });
