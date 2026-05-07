@@ -69,6 +69,16 @@ describe("audit command", () => {
     mockExit.mockRestore();
   });
 
+  it("audit clear with --confirm empties the log", () => {
+    appendAuditEntry({ action: "add", key: "SECRET", actor: "dev" });
+    const spy = jest.spyOn(console, "log").mockImplementation(() => {});
+    const program = buildProgram();
+    program.parse(["node", "envault", "audit", "clear", "--confirm"]);
+    const log = loadAuditLog();
+    expect(log.entries).toHaveLength(0);
+    spy.mockRestore();
+  });
+
   it("audit record adds entry", () => {
     const spy = jest.spyOn(console, "log").mockImplementation(() => {});
     const program = buildProgram();
@@ -81,11 +91,4 @@ describe("audit command", () => {
   });
 
   it("audit record rejects invalid action", () => {
-    const spy = jest.spyOn(console, "error").mockImplementation(() => {});
-    const mockExit = jest.spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
-    const program = buildProgram();
-    expect(() => program.parse(["node", "envault", "audit", "record", "invalid_action"])).toThrow("exit");
-    spy.mockRestore();
-    mockExit.mockRestore();
-  });
-});
+    const spy = 
