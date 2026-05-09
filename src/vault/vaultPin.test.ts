@@ -50,11 +50,26 @@ describe("vaultPin", () => {
     expect(store.pinnedAt["DB_URL"]).toBeDefined();
   });
 
+  it("pinKey records a valid ISO timestamp", () => {
+    const before = new Date().toISOString();
+    const store = pinKey(tmpDir, "DB_URL", "staging");
+    const after = new Date().toISOString();
+    const pinnedAt = store.pinnedAt["DB_URL"];
+    expect(pinnedAt >= before).toBe(true);
+    expect(pinnedAt <= after).toBe(true);
+  });
+
   it("unpinKey removes a key", () => {
     pinKey(tmpDir, "DB_URL", "staging");
     const store = unpinKey(tmpDir, "DB_URL");
     expect(store.pins["DB_URL"]).toBeUndefined();
     expect(store.pinnedAt["DB_URL"]).toBeUndefined();
+  });
+
+  it("unpinKey is a no-op for a key that is not pinned", () => {
+    const store = unpinKey(tmpDir, "NONEXISTENT");
+    expect(store.pins["NONEXISTENT"]).toBeUndefined();
+    expect(store.pinnedAt["NONEXISTENT"]).toBeUndefined();
   });
 
   it("getPinnedKeys returns all pinned keys", () => {
