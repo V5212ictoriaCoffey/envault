@@ -35,6 +35,16 @@ describe("vaultSource", () => {
     expect(loaded["API_KEY"]).toEqual(entry);
   });
 
+  it("setSource overwrites an existing entry", () => {
+    const dir = makeTempDir();
+    setSource(dir, "API_KEY", "aws-secrets");
+    const updated = setSource(dir, "API_KEY", "vault-prod");
+    expect(updated.source).toBe("vault-prod");
+    const loaded = loadSourceStore(dir);
+    expect(Object.keys(loaded)).toHaveLength(1);
+    expect(loaded["API_KEY"].source).toBe("vault-prod");
+  });
+
   it("getSource returns entry for existing key", () => {
     const dir = makeTempDir();
     setSource(dir, "DB_URL", "vault-prod");
@@ -66,6 +76,11 @@ describe("vaultSource", () => {
     setSource(dir, "B", "source2");
     const list = listSources(dir);
     expect(list).toHaveLength(2);
+  });
+
+  it("listSources returns empty array when no sources set", () => {
+    const dir = makeTempDir();
+    expect(listSources(dir)).toEqual([]);
   });
 
   it("getKeysBySource filters by source name", () => {
